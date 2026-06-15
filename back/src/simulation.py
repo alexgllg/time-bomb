@@ -10,14 +10,82 @@ import math
 import random
 from typing import Dict, Tuple
 
+from back.src.deck import Card
 from back.src.game import Game
 from back.src.player import Role
 from back.src.strategies import Strategy
 
 
+class GameState:
+    """Wraps a `Game` with the "table-talk" extras used by some strategies.
+
+    At the start of every phase, each player announces how many DEFUSE
+    cards they currently hold (`claimed_defuse`). Sherlock players are
+    truthful; Moriarty players over-claim by `moriarty_bluff` (capped at
+    their hand size). Each player also has a `trust` score (starting at
+    1.0) that is halved whenever the cards revealed from their hand during a
+    phase contradict their claim - either because more DEFUSE cards were
+    revealed than they admitted to having, or because their whole hand was
+    emptied and the final DEFUSE count doesn't match their claim.
+
+    Any attribute not defined here (e.g. `players`, `pincher`, `phase`) is
+    forwarded to the wrapped `Game`.
+    """
+
+    def __init__(self, game: 'Game', moriarty_bluff: int = 0):
+        self.game = game
+        self.moriarty_bluff = moriarty_bluff
+        self.trust: Dict[str, float] = {pid: 1.0 for pid in game.players}
+        self.claimed_defuse: Dict[str, int] = {}
+        self._revealed_defuse: Dict[str, int] = {pid: 0 for pid in game.players}
+        self._revealed_total: Dict[str, int] = {pid: 0 for pid in game.players}
+        self._hand_size_at_phase_start: Dict[str, int] = {}
+        self._caught_this_phase: Dict[str, bool] = {pid: False for pid in game.players}
+
+    def __getattr__(self, name):
+        return getattr(self.game, name)
+
+    def start_phase(self) -> None:
+        """Collect each player's DEFUSE-count announcement for the new phase."""
+        for player_id, player in self.game.players.items():
+            self._hand_size_at_phase_start[player_id] = len(player.hand)
+            self._revealed_defuse[player_id] = 0
+            self._revealed_total[player_id] = 0
+            self._caught_this_phase[player_id] = False
+            actual = sum(1 for card in player.hand if card == Card.DEFUSE)
+            if player.role == Role.SHERLOCK:
+                claim = actual
+            else:
+                claim = min(actual + self.moriarty_bluff, len(player.hand))
+            self.claimed_defuse[player_id] = claim
+
+    def record_pinch(self, target_id: str, card: 'Card') -> None:
+        """Update reveal counters for `target_id` and check for a caught lie."""
+        self._revealed_total[target_id] += 1
+        if card == Card.DEFUSE:
+            self._revealed_defuse[target_id] += 1
+        if (not self._caught_this_phase[target_id]
+                and self._revealed_defuse[target_id] > self.claimed_defuse[target_id]):
+            self._catch(target_id)
+
+    def end_phase(self) -> None:
+        """Catch players whose emptied hand contradicts their claim."""
+        for player_id in self.game.players:
+            if self._caught_this_phase[player_id]:
+                continue
+            hand_emptied = self._revealed_total[player_id] == self._hand_size_at_phase_start[player_id]
+            if hand_emptied and self._revealed_defuse[player_id] != self.claimed_defuse[player_id]:
+                self._catch(player_id)
+
+    def _catch(self, player_id: str) -> None:
+        self._caught_this_phase[player_id] = True
+        self.trust[player_id] *= 0.5
+
+
 def play_game(n_players: int,
                sherlock_strategy: 'Strategy',
-               moriarty_strategy: 'Strategy') -> Tuple[str, int]:
+               moriarty_strategy: 'Strategy',
+               moriarty_bluff: int = 0) -> Tuple[str, int]:
     """Play one full game.
 
     Returns:
@@ -28,16 +96,28 @@ def play_game(n_players: int,
         game.create_player(f'P{i}')
     game.start()
 
+    state = GameState(game, moriarty_bluff=moriarty_bluff)
+    state.start_phase()
+
     n_pinches = 0
     while not game.game_over:
         pincher_id = game.pincher
+        previous_phase = game.phase
         strategy = (
             sherlock_strategy if game.players[pincher_id].role == Role.SHERLOCK
             else moriarty_strategy
         )
-        target_name, card_id = strategy.choose(game, pincher_id, random)
-        game.pinch_card(pincher_id, target_name, card_id)
+        target_name, card_id = strategy.choose(state, pincher_id, random)
+        target_id = next(
+            pid for pid, player in game.players.items() if player.name == target_name
+        )
+        revealed = Card(game.pinch_card(pincher_id, target_name, card_id))
+        state.record_pinch(target_id, revealed)
         n_pinches += 1
+
+        if not game.game_over and game.phase != previous_phase:
+            state.end_phase()
+            state.start_phase()
 
     return game.get_winning_team(), n_pinches
 
@@ -56,12 +136,13 @@ def wilson_interval(wins: int, n: int, z: float = 1.96) -> Tuple[float, float]:
 def run_experiment(n_players: int,
                     sherlock_strategy: 'Strategy',
                     moriarty_strategy: 'Strategy',
-                    n_games: int) -> Dict:
+                    n_games: int,
+                    moriarty_bluff: int = 0) -> Dict:
     """Run `n_games` games and summarize Sherlock's results."""
     sherlock_wins = 0
     total_pinches = 0
     for _ in range(n_games):
-        winner, n_pinches = play_game(n_players, sherlock_strategy, moriarty_strategy)
+        winner, n_pinches = play_game(n_players, sherlock_strategy, moriarty_strategy, moriarty_bluff)
         if winner == Role.SHERLOCK.value:
             sherlock_wins += 1
         total_pinches += n_pinches

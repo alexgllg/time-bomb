@@ -73,16 +73,36 @@ def main():
 
     print('\n=== 3) "On en parle à table" : annonce (honnête ou pas) de qui a la bombe ===')
     print('Si un joueur a la bombe en main : un Sherlock l\'annonce toujours. Un Moriarty la cache avec une')
-    print('probabilité `lie` (sinon il l\'annonce aussi). `team_aware` = les Moriarty se le disent toujours')
-    print('en privé entre eux, même s\'ils le cachent au reste de la table.\n')
+    print('probabilité `lie` (sinon il l\'annonce aussi). Il n\'y a aucun canal privé : un Moriarty qui cache')
+    print('la bombe la cache à tout le monde, y compris ses propres coéquipiers.\n')
     lie_rates = (0.0, 0.25, 0.5, 0.75, 1.0)
     rows = []
     for n in PLAYER_COUNTS:
         for lie_rate in lie_rates:
-            for team_aware in (False, True):
-                sherlock_strategy = strat.InformedSherlockStrategy(lie_rate)
-                moriarty_strategy = strat.InformedMoriartyStrategy(lie_rate, team_aware)
-                res = run_experiment(n, sherlock_strategy, moriarty_strategy, args.games)
+            sherlock_strategy = strat.InformedSherlockStrategy(lie_rate)
+            moriarty_strategy = strat.InformedMoriartyStrategy(lie_rate)
+            res = run_experiment(n, sherlock_strategy, moriarty_strategy, args.games)
+            rows.append(_format_result(res))
+    _print_table(rows, headers)
+
+    print('\n=== 4) "On en parle à table" : annonce du nombre de DEFUSE en main ===')
+    print('Au début de chaque manche, chaque joueur annonce combien de DEFUSE il a en main. Les Sherlock')
+    print('disent toujours la vérité ; les Moriarty peuvent surenchérir de `moriarty_bluff` cartes (plafonné')
+    print('à la taille de leur main). `defuse_announcement` cible toujours qui a annoncé le plus de DEFUSE.')
+    print('`trust_weighted` pondère cette annonce par un score de confiance qui chute de moitié dès qu\'un')
+    print('joueur est pris en flagrant délit de mensonge (sa main révélée contredit son annonce).\n')
+    bluffs = (0, 1, 2, 3)
+    bluff_matchups = [
+        ('random', strat.RANDOM),
+        ('defuse_announcement', strat.DefuseAnnouncementStrategy()),
+        ('trust_weighted', strat.TrustWeightedStrategy()),
+    ]
+    rows = []
+    for n in PLAYER_COUNTS:
+        for moriarty_bluff in bluffs:
+            for _, sherlock_strategy in bluff_matchups:
+                res = run_experiment(n, sherlock_strategy, strat.RANDOM, args.games, moriarty_bluff=moriarty_bluff)
+                res['moriarty_strategy'] = f"random (bluff={moriarty_bluff})"
                 rows.append(_format_result(res))
     _print_table(rows, headers)
 
