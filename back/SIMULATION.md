@@ -54,8 +54,13 @@ publique que tout le monde entend.
 Au début de chaque manche, chaque joueur annonce publiquement combien de
 cartes DEFUSE il a en main (`GameState.claimed_defuse`, voir
 `back/src/simulation.py`). Les Sherlock annoncent toujours leur vrai compte.
-Les Moriarty peuvent surenchérir de `moriarty_bluff` cartes (plafonné à la
-taille de leur main) pour se faire passer pour des Sherlock bien fournis.
+Les Moriarty décalent leur annonce de `moriarty_bluff` cartes (plafonné entre
+0 et la taille de leur main) :
+
+- `moriarty_bluff > 0` : ils **sur-annoncent** pour se faire passer pour de
+  gros porteurs de DEFUSE (et attirer les pinces sur eux).
+- `moriarty_bluff < 0` : ils **sous-annoncent** pour cacher les DEFUSE qu'ils
+  ont réellement et éviter d'être pinchés là où ça compte.
 
 - `DefuseAnnouncementStrategy` (`defuse_announcement`) : cible toujours le
   joueur qui a annoncé le plus de DEFUSE (carte au hasard dans sa main).
@@ -65,6 +70,12 @@ taille de leur main) pour se faire passer pour des Sherlock bien fournis.
   de mensonge : soit parce qu'une carte DEFUSE de plus que son annonce a été
   révélée de sa main, soit parce que sa main a été entièrement vidée sans que
   le compte de DEFUSE révélées corresponde à son annonce.
+- `SuspicionWeightedStrategy` (`suspicion_weighted`) : va plus loin que
+  `trust_weighted`. Pour un joueur jamais pris (`trust == 1`), le score est
+  identique à `claimed_defuse`. Pour un joueur déjà pris en flagrant délit
+  (`trust < 1`), son annonce n'est plus fiable : le score mélange l'annonce
+  et la taille de sa main restante, sur l'hypothèse qu'un menteur démasqué
+  pourrait cacher jusqu'à une main pleine de DEFUSE - même s'il a annoncé 0.
 
 ## Résultats (5000 parties / configuration, seed=42)
 
@@ -110,53 +121,101 @@ bombe. À comparer à la ligne random/random de la table 2 : 15.8% / 11.1% /
 
 ### 4) "On en parle à table" : annonce du nombre de DEFUSE en main
 
-Au début de chaque manche, chaque joueur annonce son nombre de DEFUSE.
-Sherlock annonce toujours la vérité. Moriarty annonce `vrai + bluff` (plafonné
-à sa taille de main). Moriarty cible au hasard (`random`) dans tous les cas ;
-seule la stratégie côté Sherlock change.
+Au début de chaque manche, chaque joueur annonce son nombre de DEFUSE
+(`claimed_defuse`). Sherlock annonce toujours la vérité. Moriarty décale son
+annonce de `moriarty_bluff` cartes, plafonné entre 0 et sa taille de main :
 
-#### bluff=0 (Moriarty annonce honnêtement)
+- `bluff < 0` (sous-annonce) : "je n'ai pas de DEFUSE, ne me pinchez pas" —
+  cache les DEFUSE réellement détenus.
+- `bluff > 0` (sur-annonce) : "j'ai plein de DEFUSE, pinchez-moi" — se fait
+  passer pour une cible juteuse alors qu'il en a moins.
 
-| joueurs | random | defuse_announcement | trust_weighted |
+Moriarty cible au hasard (`random`) dans tous les cas ; seule la stratégie
+côté Sherlock change.
+
+#### Taux de victoire Sherlock par nombre de joueurs
+
+##### 4 joueurs
+
+| bluff | random | defuse_announcement | trust_weighted | suspicion_weighted |
+|---|---|---|---|---|
+| -3 | 14.7% | 30.3% | 30.0% | 29.5% |
+| -2 | 14.9% | 31.3% | 30.9% | 28.6% |
+| -1 | 14.3% | 33.1% | 33.4% | 33.2% |
+|  0 | 14.9% | 38.5% | 38.1% | 38.8% |
+| +1 | 15.1% | 28.2% | 28.3% | 29.0% |
+| +2 | 15.7% | 19.2% | 19.1% | 20.0% |
+| +3 | 14.8% | 16.1% | 16.4% | 17.0% |
+
+##### 5 joueurs
+
+| bluff | random | defuse_announcement | trust_weighted | suspicion_weighted |
+|---|---|---|---|---|
+| -3 | 10.4% | 32.9% | 32.9% | 31.2% |
+| -2 | 11.2% | 34.7% | 33.4% | 32.7% |
+| -1 | 11.7% | 37.2% | 36.4% | 34.8% |
+|  0 | 11.3% | 41.7% | 41.6% | 41.3% |
+| +1 | 11.0% | 26.9% | 27.7% | 27.5% |
+| +2 | 10.9% | 17.4% | 17.6% | 17.2% |
+| +3 | 10.9% | 13.8% | 13.0% | 14.6% |
+
+##### 6 joueurs
+
+| bluff | random | defuse_announcement | trust_weighted | suspicion_weighted |
+|---|---|---|---|---|
+| -3 |  7.8% | 40.7% | 41.1% | 39.5% |
+| -2 |  7.3% | 41.2% | 41.0% | 39.4% |
+| -1 |  8.1% | 41.8% | 44.4% | 41.3% |
+|  0 |  8.8% | 47.1% | 47.5% | 47.2% |
+| +1 |  8.4% | 27.5% | 28.6% | 27.6% |
+| +2 |  8.5% | 15.0% | 15.3% | 13.8% |
+| +3 |  8.3% |  9.9% | 10.7% | 10.7% |
+
+##### 7 joueurs
+
+| bluff | random | defuse_announcement | trust_weighted | suspicion_weighted |
+|---|---|---|---|---|
+| -3 |  6.2% | 39.5% | 38.8% | 38.1% |
+| -2 |  5.5% | 39.9% | 39.8% | 37.9% |
+| -1 |  6.3% | 41.3% | 40.1% | 37.9% |
+|  0 |  6.3% | 46.9% | 48.4% | 46.5% |
+| +1 |  6.0% | 26.2% | 29.3% | 25.7% |
+| +2 |  6.7% | 12.1% | 14.3% | 12.9% |
+| +3 |  5.9% |  8.8% |  9.7% |  9.2% |
+
+##### 8 joueurs
+
+| bluff | random | defuse_announcement | trust_weighted | suspicion_weighted |
+|---|---|---|---|---|
+| -3 |  4.7% | 39.0% | 39.9% | 39.6% |
+| -2 |  4.2% | 39.3% | 39.0% | 39.2% |
+| -1 |  4.7% | 42.5% | 43.1% | 40.5% |
+|  0 |  4.5% | 48.6% | 49.6% | 48.7% |
+| +1 |  4.3% | 26.3% | 27.2% | 23.8% |
+| +2 |  4.3% | 11.4% | 11.1% | 11.5% |
+| +3 |  4.6% |  7.2% |  8.3% |  7.2% |
+
+(% de victoires Sherlock ; `bluff` = décalage signé entre l'annonce de DEFUSE
+d'un Moriarty et son vrai compte, plafonné entre 0 et sa taille de main.
+`bluff = 0` = annonce honnête.)
+
+#### Pourquoi la partie se termine : bombe révélée vs. timeout
+
+Pour comprendre l'effet du bluff sur la victoire de Moriarty, voici comment
+se terminent les parties Sherlock=`trust_weighted` / Moriarty=`random`, pour
+trois valeurs de `bluff` (sous-annonce maximale, honnête, sur-annonce
+maximale) :
+
+| joueurs | bluff=-3 : % bombe / % timeout | bluff=0 : % bombe / % timeout | bluff=+3 : % bombe / % timeout |
 |---|---|---|---|
-| 4 | 14.5% | 38.4% | 38.4% |
-| 5 | 12.4% | 40.8% | 42.0% |
-| 6 |  7.7% | 47.0% | 47.2% |
-| 7 |  6.5% | 47.4% | 47.8% |
-| 8 |  4.6% | 49.1% | 48.8% |
+| 4 | 64.6% / 5.3% | 59.1% / 2.8% | 72.6% / 11.0% |
+| 5 | 62.0% / 5.1% | 56.7% / 1.7% | 74.7% / 12.3% |
+| 6 | 55.9% / 3.0% | 51.9% / 0.6% | 75.8% / 13.5% |
+| 7 | 57.3% / 3.9% | 50.7% / 0.9% | 75.6% / 14.7% |
+| 8 | 56.4% / 3.7% | 50.0% / 0.4% | 75.7% / 16.0% |
 
-#### bluff=1
-
-| joueurs | random | defuse_announcement | trust_weighted |
-|---|---|---|---|
-| 4 | 15.9% | 29.0% | 28.8% |
-| 5 | 11.7% | 27.9% | 27.9% |
-| 6 |  8.6% | 28.1% | 28.9% |
-| 7 |  6.5% | 25.8% | 26.7% |
-| 8 |  4.1% | 26.1% | 27.1% |
-
-#### bluff=2
-
-| joueurs | random | defuse_announcement | trust_weighted |
-|---|---|---|---|
-| 4 | 15.2% | 19.3% | 18.9% |
-| 5 | 11.1% | 18.0% | 17.7% |
-| 6 |  8.2% | 14.4% | 15.6% |
-| 7 |  6.4% | 12.2% | 14.4% |
-| 8 |  4.5% | 10.0% | 12.0% |
-
-#### bluff=3
-
-| joueurs | random | defuse_announcement | trust_weighted |
-|---|---|---|---|
-| 4 | 15.1% | 16.8% | 17.0% |
-| 5 | 11.1% | 12.8% | 14.2% |
-| 6 |  7.8% | 10.1% | 11.2% |
-| 7 |  5.9% |  9.0% |  9.6% |
-| 8 |  4.4% |  7.6% |  7.9% |
-
-(% de victoires Sherlock ; `bluff` = nombre de DEFUSE qu'un Moriarty
-sur-annonce par rapport à son vrai compte.)
+(le reste jusqu'à 100% correspond aux victoires Sherlock par
+`defuse_complete` — les 4 DEFUSE trouvées avant la fin de la 4e manche.)
 
 ## Conclusions
 
@@ -195,19 +254,52 @@ sur-annonce par rapport à son vrai compte.)
 
 5. **L'annonce du nombre de DEFUSE, elle, profite nettement à Sherlock — et
    c'est le premier indice de cette simulation qui l'avantage.** Avec
-   `defuse_announcement`/`trust_weighted` et des Moriarty honnêtes (table 4,
-   bluff=0), le taux de victoire de Sherlock est multiplié par 2.5 à 10 selon
-   le nombre de joueurs (ex. 4.6% → ~49% à 8 joueurs). Contrairement à
-   l'indice "qui a la bombe" (qui pointe directement vers l'unique objectif de
-   Moriarty), savoir "qui a le plus de DEFUSE" pointe directement vers
-   l'objectif de Sherlock. Mentir efface vite cet avantage : dès que les
-   Moriarty sur-annoncent de 1 à 3 cartes (bluff=1 à 3), le gain fond
-   rapidement (à bluff=3, Sherlock reste au-dessus du hasard mais de
-   seulement quelques points). Le score de `trust` (qui démasque un menteur
-   pris en flagrant délit) apporte un léger supplément par rapport à
-   `defuse_announcement` seul, surtout aux `bluff` élevés, mais ne suffit pas
-   à restaurer l'avantage initial : une seule "prise sur le fait" par partie
-   ne compense pas des annonces mensongères répétées à chaque manche.
+   `defuse_announcement`/`trust_weighted`/`suspicion_weighted` et des Moriarty
+   honnêtes (table 4, bluff=0), le taux de victoire de Sherlock est multiplié
+   par 2.5 à 10 selon le nombre de joueurs (ex. 4.5% → ~48-50% à 8 joueurs).
+   Contrairement à l'indice "qui a la bombe" (qui pointe directement vers
+   l'unique objectif de Moriarty), savoir "qui a le plus de DEFUSE" pointe
+   directement vers l'objectif de Sherlock. Mais cet avantage est fragile :
+   **`bluff=0` (annonce honnête) est le pic absolu pour Sherlock, quel que
+   soit le nombre de joueurs** — toute déviation de l'annonce de Moriarty,
+   dans un sens ou dans l'autre, fait baisser le taux de victoire de Sherlock
+   par rapport à ce pic.
+
+6. **Les deux sens du mensonge ne sont pas équivalents : sur-annoncer détruit
+   presque tout l'avantage de Sherlock, alors que sous-annoncer ne l'érode
+   que partiellement.** À `bluff=+3` ("j'ai plein de DEFUSE, pinchez-moi"),
+   Sherlock retombe proche de son niveau aléatoire (ex. à 8 joueurs : 49.6% à
+   bluff=0 contre seulement 8.3% à bluff=+3, pour 4.5% en `random`/`random`
+   pur). À `bluff=-3` ("je n'ai rien, ne me pinchez pas"), il reste nettement
+   au-dessus du hasard (39.9% à 8 joueurs) même s'il est en retrait par
+   rapport au pic. La décomposition bombe/timeout (table 4) explique le
+   mécanisme : à `bluff=0`, les parties se terminent presque toujours soit par
+   les 4 DEFUSE trouvées (victoire Sherlock), soit par une bombe révélée tôt
+   (`timeout` quasi nul, <3%). À `bluff=+3`, le taux de bombe révélée ET le
+   taux de timeout grimpent tous les deux fortement (jusqu'à 75.7% / 16.0% à
+   8 joueurs) : Sherlock fonce sur le Moriarty qui s'auto-désigne comme "gros
+   porteur de DEFUSE", ce qui finit par lui faire révéler la bombe ou par
+   épuiser les 4 manches sans compléter le plateau. À `bluff=-3`, ces deux
+   taux augmentent aussi mais beaucoup plus modestement (56.4% / 3.7% à 8
+   joueurs).
+
+   **L'hypothèse "les Moriarty devraient sous-annoncer pour ralentir le jeu et
+   gagner par timeout" est donc partiellement vraie** : sous-annoncer aide
+   réellement Moriarty et augmente un peu le taux de timeout par rapport à
+   `bluff=0`. Mais c'est en fait la **sur-annonce** qui reste l'arme la plus
+   efficace pour Moriarty — par un mécanisme différent (rediriger les pinces
+   de Sherlock vers une cible qui n'a pas vraiment les DEFUSE annoncés,
+   provoquant à la fois plus de bombes révélées et plus de timeouts) plutôt
+   que par occultation pure.
+
+7. **`suspicion_weighted` n'apporte pas d'avantage net par rapport à
+   `trust_weighted`, voire fait parfois moins bien.** L'idée — mélanger
+   l'annonce et la taille de main restante d'un joueur déjà pris en flagrant
+   délit — est parfois légèrement meilleure (ex. 5 joueurs, bluff=+3 : 14.6%
+   contre 13.0% pour `trust_weighted`) mais parfois nettement pire (ex. 8
+   joueurs, bluff=+1 : 23.8% contre 27.2%). Traquer un menteur démasqué est une
+   arme à double tranchant : cela peut aussi bien exposer un DEFUSE caché que
+   faire sortir la bombe de sa main.
 
 **Verdict** : la mécanique pure de "qui pince où" est entièrement due au
 hasard. Tout le "skill" de Time Bomb vient de la discussion/bluff à table
@@ -217,7 +309,13 @@ d'information parfaite est énorme (+85 points pour Sherlock, quasi 100% pour
 Moriarty), mais tous les indices "réalistes" ne se valent pas : un indice
 qui pointe vers l'objectif de Moriarty (où est la bombe) profite à Moriarty
 même quand il est imparfait ou mensonger, alors qu'un indice qui pointe vers
-l'objectif de Sherlock (qui a des DEFUSE) profite réellement à Sherlock,
-tant que le mensonge des Moriarty reste limité. La discussion à table n'est
-donc bonne pour les "gentils" que si elle porte sur *leurs* indices, pas sur
-ceux de Moriarty — et son effet s'érode vite face au bluff.
+l'objectif de Sherlock (qui a des DEFUSE) profite réellement à Sherlock —
+mais seulement tant que les Moriarty restent honnêtes sur cet indice. La
+discussion à table n'est donc bonne pour les "gentils" que si elle porte sur
+*leurs* indices, pas sur ceux de Moriarty, et seulement si elle reste sincère
+: dès que les Moriarty mentent sur leur compte de DEFUSE, l'avantage de
+Sherlock s'érode — pas de façon symétrique. Un Moriarty qui sous-annonce pour
+se cacher reste un adversaire qu'on peut encore traquer (Sherlock garde une
+large avance sur le hasard) ; un Moriarty qui sur-annonce pour se faire
+passer pour une cible juteuse aspire les pinces de Sherlock vers de mauvaises
+cibles et ramène la partie presque au niveau du hasard pur.
