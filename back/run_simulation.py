@@ -71,6 +71,21 @@ def main():
             rows.append(_format_result(res))
     _print_table(rows, headers)
 
+    print('\n=== 3) "On en parle à table" : annonce (honnête ou pas) de qui a la bombe ===')
+    print('Si un joueur a la bombe en main : un Sherlock l\'annonce toujours. Un Moriarty la cache avec une')
+    print('probabilité `lie` (sinon il l\'annonce aussi). `team_aware` = les Moriarty se le disent toujours')
+    print('en privé entre eux, même s\'ils le cachent au reste de la table.\n')
+    lie_rates = (0.0, 0.25, 0.5, 0.75, 1.0)
+    rows = []
+    for n in PLAYER_COUNTS:
+        for lie_rate in lie_rates:
+            for team_aware in (False, True):
+                sherlock_strategy = strat.InformedSherlockStrategy(lie_rate)
+                moriarty_strategy = strat.InformedMoriartyStrategy(lie_rate, team_aware)
+                res = run_experiment(n, sherlock_strategy, moriarty_strategy, args.games)
+                rows.append(_format_result(res))
+    _print_table(rows, headers)
+
 
 if __name__ == '__main__':
     main()

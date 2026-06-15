@@ -14,12 +14,21 @@ into two families:
   theoretical best case where table-talk/bluffing has fully revealed where
   the bomb and the defuse cards are, and therefore represent the *skill
   ceiling* of the game.
+
+- "Informed" strategies (InformedSherlockStrategy, InformedMoriartyStrategy):
+  a middle ground modelling table-talk about a single piece of information,
+  "who currently holds the bomb card". Sherlock players always announce it
+  truthfully if it is them. Moriarty players hide it with probability
+  `lie_rate`, but may still know it privately through their teammates if
+  `team_aware` is set. Nobody knows *where* in a hand the bomb sits, only
+  *who* holds it.
 """
 import random
-from typing import List, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 from back.src.deck import Card
 from back.src.game import Game
+from back.src.player import Role
 
 
 def legal_targets(game: 'Game', pincher_id: str) -> List[str]:
@@ -137,3 +146,70 @@ ORACLE_SHERLOCK = OracleStrategy((Card.DEFUSE, Card.SECURE, Card.BOMB), 'oracle_
 ORACLE_MORIARTY = OracleStrategy((Card.BOMB, Card.SECURE, Card.DEFUSE), 'oracle_moriarty')
 
 BLIND_STRATEGIES = (RANDOM, ROUND_ROBIN, MAX_HAND, MIN_HAND, FIRST_CARD)
+
+
+def find_bomb_holder(game: 'Game') -> Optional[str]:
+    """Return the id of the player currently holding the BOMB card, if any."""
+    for player_id, player in game.players.items():
+        if Card.BOMB in player.hand:
+            return player_id
+    return None
+
+
+def _announced_bomb_holder(game: 'Game',
+                            rng: 'random.Random',
+                            lie_rate: float,
+                            team_aware: bool) -> Optional[str]:
+    """Return the id of the player publicly believed to hold the bomb.
+
+    Sherlock players always tell the truth: if they hold the bomb, it is
+    announced. Moriarty players hide it with probability `lie_rate` unless
+    `team_aware` is set, in which case their teammates know regardless of
+    whether it was announced publicly.
+    """
+    holder_id = find_bomb_holder(game)
+    if holder_id is None:
+        return None
+    holder = game.players[holder_id]
+    if holder.role == Role.SHERLOCK:
+        return holder_id
+    if team_aware or rng.random() >= lie_rate:
+        return holder_id
+    return None
+
+
+class InformedSherlockStrategy(Strategy):
+    """Avoid the player publicly known to hold the bomb, if any.
+
+    Sherlock players only ever hear the public announcements (they have no
+    access to Moriarty's private "team_aware" channel), so the bomb holder
+    is only known to them when it leaks publicly.
+    """
+
+    def __init__(self, lie_rate: float):
+        self.lie_rate = lie_rate
+        self.name = f'informed_sherlock(lie={lie_rate:.2f})'
+
+    def choose(self, game, pincher_id, rng):
+        targets = legal_targets(game, pincher_id)
+        suspect = _announced_bomb_holder(game, rng, self.lie_rate, team_aware=False)
+        safe_targets = [t for t in targets if t != suspect] or targets
+        target_id = rng.choice(safe_targets)
+        card_id = rng.randrange(len(game.players[target_id].hand))
+        return game.players[target_id].name, card_id
+
+
+class InformedMoriartyStrategy(Strategy):
+    """Target the player known to hold the bomb, if any, to expose it."""
+
+    def __init__(self, lie_rate: float, team_aware: bool = True):
+        self.lie_rate = lie_rate
+        self.team_aware = team_aware
+        self.name = f'informed_moriarty(lie={lie_rate:.2f}, team_aware={team_aware})'
+
+    def choose(self, game, pincher_id, rng):
+        targets = legal_targets(game, pincher_id)
+        suspect = _announced_bomb_holder(game, rng, self.lie_rate, self.team_aware)
+        target_id = suspect if suspect in targets else rng.choice(targets)
+        card_id = rng.randrange(len(game.players[target_id].hand))
+        return game.players[target_id].name, card_id
