@@ -1,3 +1,5 @@
+import os
+
 import flask
 from flask import abort, jsonify, request
 from flask_cors import CORS
@@ -8,8 +10,8 @@ from back.src.game import Game
 
 app = flask.Flask(__name__)
 CORS(app)
-app.config['DEBUG'] = True
-app.config['SECRET_KEY'] = 'UNESCO'
+app.config['DEBUG'] = os.environ.get('FLASK_DEBUG', 'False') == 'True'
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', os.urandom(24).hex())
 
 ROOMS: Dict[str, 'Game'] = dict()
 GAME_ERROR_MESSAGE = 'Error: The provided game id does not correspond to any game.'
@@ -137,4 +139,6 @@ def api_get_game_state(
         ROOMS[game_id].state()
     )
 
-app.run()
+
+if __name__ == '__main__':
+    app.run()

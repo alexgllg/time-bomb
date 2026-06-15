@@ -255,22 +255,22 @@ class Game:
             pinched_card = self.players[target_id].hand.pop(card_id)
             self.step += 1
             self.update_hand_history()
-            if self.step == self.number_of_players + 1:
-                self.deck.refill()
-                self.phase += 1
-                self.step = 1
-                self.deck.deal_cards()
             self.update_board(pinched_card)
             self.pincher = target_id
             game_over = self.is_game_over()
             if game_over:
                 self.game_over = True
                 self.winning_team = game_over
+            elif self.step == self.number_of_players + 1:
+                self.deck.refill()
+                self.phase += 1
+                self.step = 1
+                self.deck.deal_cards()
             return pinched_card.value
         elif self.game_over:
-            ValueError('The game is over!')
+            raise ValueError('The game is over!')
         else:
-            ValueError('The demanded pinch move is illegal!')
+            raise ValueError('The demanded pinch move is illegal!')
 
     def state(self) -> Dict:
         """

@@ -63,17 +63,17 @@ class Player:
     def deal_card(self,
                   card: 'Card'):
         """"""
-        assert len(self.hand)+1 <= self.game.legal_cards_per_hand(), "Number of player cards at phase {} cannot\
-exceed {}.".format(self.game.phase, self.game.legal_cards_per_hand())
+        assert len(self.hand)+1 <= self.game.legal_cards_per_hand(), "Number of player cards at phase {} cannot " \
+            "exceed {}.".format(self.game.phase, self.game.legal_cards_per_hand())
         self.hand.append(card)
 
     def _add_new_phase_into_hand_history(self):
         """"""
-        self.hand_history[self.game.phase] = {self.game.step: self.hand}
+        self.hand_history[self.game.phase] = {self.game.step: list(self.hand)}
 
     def update_hand_history(self):
         """"""
-        self.hand_history[self.game.phase][self.game.step] = self.hand
+        self.hand_history[self.game.phase][self.game.step] = list(self.hand)
 
     def shuffle_hand(self):
         """"""
