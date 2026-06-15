@@ -21,12 +21,18 @@ class GameState:
 
     At the start of every phase, each player announces how many DEFUSE
     cards they currently hold (`claimed_defuse`). Sherlock players are
-    truthful; Moriarty players over-claim by `moriarty_bluff` (capped at
-    their hand size). Each player also has a `trust` score (starting at
-    1.0) that is halved whenever the cards revealed from their hand during a
-    phase contradict their claim - either because more DEFUSE cards were
-    revealed than they admitted to having, or because their whole hand was
-    emptied and the final DEFUSE count doesn't match their claim.
+    truthful; Moriarty players shift their claim by `moriarty_bluff` cards
+    (clamped to `[0, hand_size]`). A positive `moriarty_bluff` makes them
+    over-claim (pretend to be a juicy target); a negative value makes them
+    under-claim - hiding the DEFUSE cards they actually hold so pinchers
+    look elsewhere, which can stall the count of revealed DEFUSE long enough
+    for Moriarty to win by running out the clock. Each player also has a
+    `trust` score (starting at 1.0) that is halved whenever the cards
+    revealed from their hand during a phase contradict their claim - either
+    because more DEFUSE cards were revealed than they admitted to having, or
+    because their whole hand was emptied and the final DEFUSE count doesn't
+    match their claim. Under-claiming is riskier: any DEFUSE revealed from
+    their hand immediately exceeds their (low) claim and gets them caught.
 
     Any attribute not defined here (e.g. `players`, `pincher`, `phase`) is
     forwarded to the wrapped `Game`.
@@ -56,7 +62,7 @@ class GameState:
             if player.role == Role.SHERLOCK:
                 claim = actual
             else:
-                claim = min(actual + self.moriarty_bluff, len(player.hand))
+                claim = max(0, min(actual + self.moriarty_bluff, len(player.hand)))
             self.claimed_defuse[player_id] = claim
 
     def record_pinch(self, target_id: str, card: 'Card') -> None:
@@ -82,14 +88,29 @@ class GameState:
         self.trust[player_id] *= 0.5
 
 
+def _win_reason(game: 'Game') -> str:
+    """Classify how a finished `game` ended.
+
+    Mirrors the priority order of `Game.is_game_over`: an all-DEFUSE board
+    wins for Sherlock even if the bomb has (impossibly) also been seen.
+    """
+    if game.board[Card.DEFUSE] == game.number_of_players:
+        return 'defuse_complete'
+    if game.board[Card.BOMB] == 1:
+        return 'bomb_revealed'
+    return 'timeout'
+
+
 def play_game(n_players: int,
                sherlock_strategy: 'Strategy',
                moriarty_strategy: 'Strategy',
-               moriarty_bluff: int = 0) -> Tuple[str, int]:
+               moriarty_bluff: int = 0) -> Tuple[str, int, str]:
     """Play one full game.
 
     Returns:
-        A tuple `(winning_team, number_of_pinches)`.
+        A tuple `(winning_team, number_of_pinches, win_reason)`, where
+        `win_reason` is one of `'defuse_complete'`, `'bomb_revealed'` or
+        `'timeout'` (all DEFUSE not found within the 4 phases).
     """
     game = Game()
     for i in range(n_players):
@@ -119,7 +140,7 @@ def play_game(n_players: int,
             state.end_phase()
             state.start_phase()
 
-    return game.get_winning_team(), n_pinches
+    return game.get_winning_team(), n_pinches, _win_reason(game)
 
 
 def wilson_interval(wins: int, n: int, z: float = 1.96) -> Tuple[float, float]:
@@ -141,11 +162,13 @@ def run_experiment(n_players: int,
     """Run `n_games` games and summarize Sherlock's results."""
     sherlock_wins = 0
     total_pinches = 0
+    reason_counts = {'defuse_complete': 0, 'bomb_revealed': 0, 'timeout': 0}
     for _ in range(n_games):
-        winner, n_pinches = play_game(n_players, sherlock_strategy, moriarty_strategy, moriarty_bluff)
+        winner, n_pinches, reason = play_game(n_players, sherlock_strategy, moriarty_strategy, moriarty_bluff)
         if winner == Role.SHERLOCK.value:
             sherlock_wins += 1
         total_pinches += n_pinches
+        reason_counts[reason] += 1
 
     lo, hi = wilson_interval(sherlock_wins, n_games)
     return {
@@ -156,4 +179,6 @@ def run_experiment(n_players: int,
         'sherlock_win_rate': sherlock_wins / n_games,
         'sherlock_win_rate_ci': (lo, hi),
         'avg_pinches': total_pinches / n_games,
+        'bomb_revealed_rate': reason_counts['bomb_revealed'] / n_games,
+        'timeout_rate': reason_counts['timeout'] / n_games,
     }

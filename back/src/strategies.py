@@ -23,12 +23,17 @@ into two families:
   hides the bomb keeps it secret from everyone, including their own team.
 
 - "Defuse announcement" strategies (DefuseAnnouncementStrategy,
-  TrustWeightedStrategy): at the start of every phase, each player announces
-  how many DEFUSE cards they currently hold. Sherlock players are truthful;
-  Moriarty players may over-claim (see `GameState.moriarty_bluff` in
-  `back/src/simulation.py`). `TrustWeightedStrategy` additionally weighs
-  these claims by a per-player "trust" score that drops whenever a player's
-  claim is later proven wrong by the cards actually revealed from their hand.
+  TrustWeightedStrategy, SuspicionWeightedStrategy): at the start of every
+  phase, each player announces how many DEFUSE cards they currently hold.
+  Sherlock players are truthful; Moriarty players may shift their claim by
+  `GameState.moriarty_bluff` cards (see `back/src/simulation.py`) - a
+  positive value over-claims (looks like a juicy target), a negative value
+  under-claims (hides DEFUSE cards to avoid being pinched and stall the
+  game). `TrustWeightedStrategy` weighs these claims by a per-player "trust"
+  score that drops whenever a player's claim is later proven wrong by the
+  cards actually revealed from their hand. `SuspicionWeightedStrategy` goes
+  further: once a player is caught lying, their (now unreliable, possibly
+  under-claimed) announcement is blended with their remaining hand size.
 
 All strategies receive a `GameState` (see `back/src/simulation.py`) as their
 first argument. `GameState` transparently exposes the underlying `Game`'s
@@ -246,6 +251,35 @@ class TrustWeightedStrategy(Strategy):
     def choose(self, state, pincher_id, rng):
         targets = legal_targets(state, pincher_id)
         scores = {t: state.claimed_defuse[t] * state.trust[t] for t in targets}
+        best = max(scores.values())
+        best_targets = [t for t in targets if scores[t] == best]
+        target_id = rng.choice(best_targets)
+        card_id = rng.randrange(len(state.players[target_id].hand))
+        return state.players[target_id].name, card_id
+
+
+class SuspicionWeightedStrategy(Strategy):
+    """Target whoever is most likely to still be hiding DEFUSE cards.
+
+    For a fully trusted player (`trust == 1`), the score is just their
+    claimed DEFUSE count, like `TrustWeightedStrategy`. For a player who has
+    been caught lying at least once, `trust < 1` and the claim is no longer
+    reliable: the score blends in their remaining hand size, on the
+    assumption that a known liar could still be hiding up to a full hand of
+    DEFUSE. This makes getting caught costly even for a player who
+    under-claims down to 0.
+    """
+
+    name = 'suspicion_weighted'
+
+    def choose(self, state, pincher_id, rng):
+        targets = legal_targets(state, pincher_id)
+
+        def score(t):
+            trust = state.trust[t]
+            return trust * state.claimed_defuse[t] + (1 - trust) * len(state.players[t].hand)
+
+        scores = {t: score(t) for t in targets}
         best = max(scores.values())
         best_targets = [t for t in targets if scores[t] == best]
         target_id = rng.choice(best_targets)

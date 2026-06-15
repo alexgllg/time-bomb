@@ -87,24 +87,32 @@ def main():
 
     print('\n=== 4) "On en parle à table" : annonce du nombre de DEFUSE en main ===')
     print('Au début de chaque manche, chaque joueur annonce combien de DEFUSE il a en main. Les Sherlock')
-    print('disent toujours la vérité ; les Moriarty peuvent surenchérir de `moriarty_bluff` cartes (plafonné')
-    print('à la taille de leur main). `defuse_announcement` cible toujours qui a annoncé le plus de DEFUSE.')
-    print('`trust_weighted` pondère cette annonce par un score de confiance qui chute de moitié dès qu\'un')
-    print('joueur est pris en flagrant délit de mensonge (sa main révélée contredit son annonce).\n')
-    bluffs = (0, 1, 2, 3)
-    bluff_matchups = [
+    print('disent toujours la vérité. Les Moriarty décalent leur annonce de `moriarty_bluff` cartes (positif')
+    print('= sur-annonce pour se faire passer pour un gros porteur de DEFUSE ; négatif = sous-annonce pour')
+    print('cacher leurs DEFUSE et ne pas être pinchés). `defuse_announcement` cible qui a annoncé le plus de')
+    print('DEFUSE. `trust_weighted` pondère par un score de confiance qui chute de moitié dès qu\'un joueur')
+    print('est pris en flagrant délit de mensonge. `suspicion_weighted` va plus loin : une fois pris en')
+    print('flagrant délit, l\'annonce (potentiellement sous-évaluée) d\'un joueur est mélangée à la taille de')
+    print('sa main restante.\n')
+    bluffs = (-3, -2, -1, 0, 1, 2, 3)
+    bluff_strategies = [
         ('random', strat.RANDOM),
         ('defuse_announcement', strat.DefuseAnnouncementStrategy()),
         ('trust_weighted', strat.TrustWeightedStrategy()),
+        ('suspicion_weighted', strat.SuspicionWeightedStrategy()),
     ]
+    headers4 = headers + ('% bombe', '% timeout')
     rows = []
     for n in PLAYER_COUNTS:
         for moriarty_bluff in bluffs:
-            for _, sherlock_strategy in bluff_matchups:
+            for _, sherlock_strategy in bluff_strategies:
                 res = run_experiment(n, sherlock_strategy, strat.RANDOM, args.games, moriarty_bluff=moriarty_bluff)
-                res['moriarty_strategy'] = f"random (bluff={moriarty_bluff})"
-                rows.append(_format_result(res))
-    _print_table(rows, headers)
+                res['moriarty_strategy'] = f"random (bluff={moriarty_bluff:+d})"
+                rows.append(_format_result(res) + (
+                    f"{res['bomb_revealed_rate'] * 100:5.1f}%",
+                    f"{res['timeout_rate'] * 100:5.1f}%",
+                ))
+    _print_table(rows, headers4)
 
 
 if __name__ == '__main__':
