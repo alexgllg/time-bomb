@@ -1,0 +1,119 @@
+"""Run a battery of Time Bomb simulations to estimate how much of the game
+is decided by luck vs. by the choices made at each pinch.
+
+Usage:
+    python -m back.run_simulation [--games 5000] [--seed 42]
+"""
+import argparse
+import random
+
+from back.src import strategies as strat
+from back.src.simulation import run_experiment
+
+PLAYER_COUNTS = range(4, 9)
+
+
+def _print_table(rows, headers):
+    widths = [len(h) for h in headers]
+    for row in rows:
+        for i, cell in enumerate(row):
+            widths[i] = max(widths[i], len(cell))
+    fmt = ' | '.join('{:<' + str(w) + '}' for w in widths)
+    print(fmt.format(*headers))
+    print('-+-'.join('-' * w for w in widths))
+    for row in rows:
+        print(fmt.format(*row))
+
+
+def _format_result(res):
+    lo, hi = res['sherlock_win_rate_ci']
+    return (
+        str(res['n_players']),
+        res['sherlock_strategy'],
+        res['moriarty_strategy'],
+        f"{res['sherlock_win_rate'] * 100:5.2f}%",
+        f"[{lo * 100:5.2f}%, {hi * 100:5.2f}%]",
+        f"{res['avg_pinches']:.2f}",
+    )
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--games', type=int, default=5000, help='games per configuration')
+    parser.add_argument('--seed', type=int, default=42)
+    args = parser.parse_args()
+
+    random.seed(args.seed)
+    headers = ('joueurs', 'Sherlock', 'Moriarty', '% victoire Sherlock', 'IC 95%', 'tours moy.')
+
+    print('=== 1) Stratégies "à l\'aveugle" (aucune information sur les cartes) vs Moriarty aléatoire ===')
+    print('Le but est de voir si une heuristique plus "maline" qu\'un tirage au hasard change le taux de victoire.\n')
+    rows = []
+    for n in PLAYER_COUNTS:
+        for blind in strat.BLIND_STRATEGIES:
+            res = run_experiment(n, blind, strat.RANDOM, args.games)
+            rows.append(_format_result(res))
+    _print_table(rows, headers)
+
+    print('\n=== 2) Effet d\'une information parfaite ("oracle") sur les cartes ===')
+    print('L\'oracle voit la vraie identité de chaque carte avant de la révéler : il modélise le plafond de')
+    print('"skill" atteignable si la discussion à table révélait parfaitement qui a quoi.\n')
+    matchups = [
+        (strat.RANDOM, strat.RANDOM),
+        (strat.ORACLE_SHERLOCK, strat.RANDOM),
+        (strat.RANDOM, strat.ORACLE_MORIARTY),
+        (strat.ORACLE_SHERLOCK, strat.ORACLE_MORIARTY),
+    ]
+    rows = []
+    for n in PLAYER_COUNTS:
+        for sherlock_strategy, moriarty_strategy in matchups:
+            res = run_experiment(n, sherlock_strategy, moriarty_strategy, args.games)
+            rows.append(_format_result(res))
+    _print_table(rows, headers)
+
+    print('\n=== 3) "On en parle à table" : annonce (honnête ou pas) de qui a la bombe ===')
+    print('Si un joueur a la bombe en main : un Sherlock l\'annonce toujours. Un Moriarty la cache avec une')
+    print('probabilité `lie` (sinon il l\'annonce aussi). Il n\'y a aucun canal privé : un Moriarty qui cache')
+    print('la bombe la cache à tout le monde, y compris ses propres coéquipiers.\n')
+    lie_rates = (0.0, 0.25, 0.5, 0.75, 1.0)
+    rows = []
+    for n in PLAYER_COUNTS:
+        for lie_rate in lie_rates:
+            sherlock_strategy = strat.InformedSherlockStrategy(lie_rate)
+            moriarty_strategy = strat.InformedMoriartyStrategy(lie_rate)
+            res = run_experiment(n, sherlock_strategy, moriarty_strategy, args.games)
+            rows.append(_format_result(res))
+    _print_table(rows, headers)
+
+    print('\n=== 4) "On en parle à table" : annonce du nombre de DEFUSE en main ===')
+    print('Au début de chaque manche, chaque joueur annonce combien de DEFUSE il a en main. Les Sherlock')
+    print('disent toujours la vérité. Les Moriarty décalent leur annonce de `moriarty_bluff` cartes (positif')
+    print('= sur-annonce pour se faire passer pour un gros porteur de DEFUSE ; négatif = sous-annonce pour')
+    print('cacher leurs DEFUSE et ne pas être pinchés). `defuse_announcement` cible qui a annoncé le plus de')
+    print('DEFUSE. `trust_weighted` pondère par un score de confiance qui chute de moitié dès qu\'un joueur')
+    print('est pris en flagrant délit de mensonge. `suspicion_weighted` va plus loin : une fois pris en')
+    print('flagrant délit, l\'annonce (potentiellement sous-évaluée) d\'un joueur est mélangée à la taille de')
+    print('sa main restante.\n')
+    bluffs = (-3, -2, -1, 0, 1, 2, 3)
+    bluff_strategies = [
+        ('random', strat.RANDOM),
+        ('defuse_announcement', strat.DefuseAnnouncementStrategy()),
+        ('trust_weighted', strat.TrustWeightedStrategy()),
+        ('suspicion_weighted', strat.SuspicionWeightedStrategy()),
+    ]
+    headers4 = headers + ('% bombe', '% timeout')
+    rows = []
+    for n in PLAYER_COUNTS:
+        for moriarty_bluff in bluffs:
+            for _, sherlock_strategy in bluff_strategies:
+                res = run_experiment(n, sherlock_strategy, strat.RANDOM, args.games, moriarty_bluff=moriarty_bluff)
+                res['moriarty_strategy'] = f"random (bluff={moriarty_bluff:+d})"
+                rows.append(_format_result(res) + (
+                    f"{res['bomb_revealed_rate'] * 100:5.1f}%",
+                    f"{res['timeout_rate'] * 100:5.1f}%",
+                ))
+    _print_table(rows, headers4)
+
+
+if __name__ == '__main__':
+    main()

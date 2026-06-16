@@ -33,7 +33,7 @@ class Deck:
             A shuffled list of cards.
         """
         defuse_list = number_of_players*[Card.DEFUSE]
-        secure_list = (5*(number_of_players-1))*[Card.SECURE]
+        secure_list = (4*number_of_players-1)*[Card.SECURE]
         card_list = defuse_list + secure_list + [Card.BOMB]
         random.shuffle(card_list)
         return card_list
